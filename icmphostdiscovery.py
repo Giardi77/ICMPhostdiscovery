@@ -5,6 +5,12 @@ import sys
 import multiprocessing
 import string 
 import random 
+import time
+from netifaces import interfaces, ifaddresses, AF_INET
+
+
+
+Sending_pings = True
 
 class IP:
     def __init__(self, buff=None):
@@ -49,10 +55,11 @@ def generate_random_hex_string(length=7):
     return random_hex_string
 
 def listen(secret:str):
+    global Sending_pings
     socket_protocol = socket.IPPROTO_IP
     sniffer = socket.socket(socket.AF_INET,socket.SOCK_RAW,socket_protocol)
 
-    while True:  
+    while Sending_pings:  
         raw_buffer = sniffer.recvfrom(65535)[0]
         ip_header = IP(raw_buffer[0:20])
         data = raw_buffer[64:]
@@ -61,8 +68,12 @@ def listen(secret:str):
 
    
 def sendping(ip,mask,secret):
+    global Sending_pings
+    my_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    my_socket.connect(("8.8.8.8", 80))
+    my_ip = my_socket.getsockname()[0]
     s = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    s.bind(('192.168.1.99',0))
+    s.bind((my_ip,0))
 
     icmp_type = 8  
     icmp_code = 0
@@ -82,7 +93,12 @@ def sendping(ip,mask,secret):
             print(e)
     
     print('--- All packets sent ---')
-           
+
+    time.sleep(5)
+    Sending_pings = False
+    print()
+
+
 
 if __name__ == '__main__':
     
@@ -102,11 +118,12 @@ if __name__ == '__main__':
     try:
         listener.start()
         sender.start()
+        sender.join()
+        listener.join()
+
     except KeyboardInterrupt:
         listener.terminate()
-        listener.join()
         sender.terminate()
-        sender.join()
         
         
 
