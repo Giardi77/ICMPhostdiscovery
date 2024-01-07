@@ -5,10 +5,6 @@ import sys
 import multiprocessing
 import string 
 import random 
-import time
-from netifaces import interfaces, ifaddresses, AF_INET
-
-
 
 Sending_pings = True
 
@@ -56,24 +52,32 @@ def generate_random_hex_string(length=7):
 
 def listen(secret:str):
     global Sending_pings
-    socket_protocol = socket.IPPROTO_IP
-    sniffer = socket.socket(socket.AF_INET,socket.SOCK_RAW,socket_protocol)
-
-    while Sending_pings:  
-        raw_buffer = sniffer.recvfrom(65535)[0]
-        ip_header = IP(raw_buffer[0:20])
-        data = raw_buffer[64:]
-        if data.decode('utf-8') == secret:
-            print(f'{ip_header.src_address} replied to your ping')
-
-   
-def sendping(ip,mask,secret):
-    global Sending_pings
+    sniffer = socket.socket(socket.AF_INET,socket.SOCK_DGRAM,socket.IPPROTO_ICMP)
     my_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     my_socket.connect(("8.8.8.8", 80))
     my_ip = my_socket.getsockname()[0]
+    sniffer.bind((my_ip,2500))
+
+    sniffer.settimeout(5)
+
+    while Sending_pings: 
+        try: 
+            raw_buffer = sniffer.recvfrom(65535)[0]
+            ip_header = IP(raw_buffer[0:20])
+            data = raw_buffer[64:]
+            if data.decode('utf-8') == secret:
+                print(f'{ip_header.src_address} replied to your ping')
+        except TimeoutError:
+            print('Done')
+            break
+        
+def sendping(ip,mask,secret):
+    global Sending_pings
+    my_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    my_socket.connect(("8.8.8.8", 2500))
+    my_ip = my_socket.getsockname()[0]
     s = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    s.bind((my_ip,0))
+    s.bind((my_ip,2500))
 
     icmp_type = 8  
     icmp_code = 0
@@ -82,47 +86,47 @@ def sendping(ip,mask,secret):
     icmp_sequence = 0
 
     rawicmp = struct.pack('BBHHH',icmp_type,icmp_code,icmp_checksum,icmp_identifier,icmp_sequence)
-    rawicmp = rawicmp + bytes(secret,'utf8')
+    rawicmpwithscrt = rawicmp + bytes(secret,'utf8')
     
     nettoscan = f'{ip}/{mask}'
     
-    for gotip in ipaddress.IPv4Network(nettoscan):
+    for gotip in ipaddress.IPv4Network(nettoscan).hosts():
         try:
-            s.sendto(rawicmp,(str(gotip),0))        
+            s.sendto(rawicmpwithscrt,(str(gotip),2500))
         except OSError as e:
             print(e)
-    
+
     print('--- All packets sent ---')
-
-    time.sleep(5)
+    
     Sending_pings = False
-    print()
-
 
 
 if __name__ == '__main__':
     
-    host = '192.168.1.0'
-    mask = '24'
-
-    if len(sys.argv) == 2:
+    
+    if len(sys.argv) == 3:
         host = sys.argv[1]
         mask = sys.argv[2]
     
     elif len(sys.argv) == 2:
         host = sys.argv[1] 
 
+    else:
+        host = '192.168.1.0'
+        mask = '24'
+
     secret = generate_random_hex_string()
     listener = multiprocessing.Process(target=listen,args=(secret,))
     sender = multiprocessing.Process(target=sendping,args=(host,mask,secret))
+    
     try:
         listener.start()
         sender.start()
         sender.join()
         listener.join()
-
+        
     except KeyboardInterrupt:
-        listener.terminate()
+        #listener.terminate()
         sender.terminate()
         
         
